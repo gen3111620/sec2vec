@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import dill as pickle
 import shlex
@@ -37,17 +38,19 @@ class Sec2Vec():
 				'One of parameters, sentences and corpus_file should not be None.')
 
 		# 20181130 LIN, Y.D.: Save all sentences for training
-		if isinstance(sentences, Iterator):
+		# 20181201 Arvis: fix corpus_file bug 
+		if sentences:
+			if isinstance(sentences, Iterator):
 
-			self.sentences = []
-			for s in sentences: 
-				self.sentences.append(s)
+				self.sentences = []
+				for s in sentences: 
+					self.sentences.append(s)
+			else:
+				self.sentences = sentences
+		
 
 		else:
-			self.sentences = sentences
-
-		if sentences is None:
-			self.corpus_file = corpus_file
+			self.sentences = [re.sub(r'\n', '', sentence) for sentence in open(corpus_file)]
 
 	def __getitem__(self, word):
 
@@ -249,8 +252,10 @@ class KeywordCorpusFactoryWord2VecMixin(Sec2Vec, Word2Vec, KeywordCorpusFactory)
 		epoch_logger = EpochLogger(compute_loss)
 		
 		Word2Vec.__init__(
-			self, 
-			corpus_file=corpus_file, size=size, 
+			self,
+			# 20181201 Arvis
+			# corpus_file=corpus_file
+			size=size, 
 			alpha=alpha, window=window, min_count=min_count,
 			max_vocab_size=max_vocab_size, sample=sample, seed=seed, 
 			workers=workers, min_alpha=min_alpha, sg=sg, 
@@ -294,7 +299,9 @@ class KeywordCorpusFactoryFasttextMixin(Sec2Vec, FastText, KeywordCorpusFactory)
 		self.corpus_chunksize = corpus_chunksize
 
 		FastText.__init__(self, 
-			corpus_file=corpus_file, size=size, alpha=alpha, word_ngrams=word_ngrams,
+			# 20181201 Arvis
+			#corpus_file=corpus_file
+			size=size, alpha=alpha, word_ngrams=word_ngrams,
 			window=window, min_count=min_count, max_vocab_size=max_vocab_size, 
 			sample=sample, seed=seed, workers=workers, min_n=min_n, max_n=max_n,
 			min_alpha=min_alpha, sg=sg, hs=hs, bucket=bucket,
@@ -307,7 +314,8 @@ class KeywordCorpusFactoryFasttextMixin(Sec2Vec, FastText, KeywordCorpusFactory)
 class SecWord2Vec(KeywordCorpusFactoryWord2VecMixin):
 
 	def __init__(
-		self, keywords, sentences, corpus_file=None,
+		#20181201 arivs fix sentences to sentences=None
+		self, keywords, sentences=None, corpus_file=None,
 		corpus_worker=3, corpus_chunksize=5000, case_sensitive=False, 
 		size=100, alpha=0.025, 
 		window=5, min_count=5, max_vocab_size=None, 
@@ -328,14 +336,16 @@ class SecWord2Vec(KeywordCorpusFactoryWord2VecMixin):
 			ns_exponent, cbow_mean, iter, 
 			null_word, trim_rule, sorted_vocab,
 			batch_words, compute_loss, max_final_vocab)
-
+		
+		
 		self.build_vocab(
 			(corpus for corpus in SentenceIterator(self.sentences)))
-
+		
 class SecFastText(KeywordCorpusFactoryFasttextMixin):
 
 	def __init__(
-		self, keywords, sentences, corpus_file=None,
+		#20181201 arivs fix sentences to sentences=None
+		self, keywords, sentences=None, corpus_file=None,
 		size=100, alpha=0.025, word_ngrams=1, 
 		min_n=3, max_n=6, bucket=2000000,
 		corpus_worker=3, corpus_chunksize=5000, case_sensitive=False,
@@ -368,12 +378,14 @@ class KeywordCorpusFactoryGloveMixin(Sec2Vec, KeywordCorpusFactory):
 		corpus_worker, corpus_chunksize, case_sensitive
 		):
 
+
 		Sec2Vec.__init__(self, sentences, corpus_file)
 		KeywordCorpusFactory.__init__(self, keywords, case_sensitive, corpus_worker)
 
 		# 20181130 Hannah Chen
+
 		self.kc = self.create(SentenceIterator(self.sentences), corpus_chunksize)
-		self.kv = dict(((keyword, []) for keyword in self.kc.keys()))
+		self.kv = dict(((keyword, {}) for keyword in self.kc.keys()))
 		self.keyword_count = dict(((keyword, 0) for keyword in self.kc.keys()))
 		self.corpus_chunksize = corpus_chunksize
 		
@@ -603,7 +615,7 @@ class SecGloVe(KeywordCorpusFactoryGloveMixin):
 
 			self._remove_temp_file()
 
-			self.pretrained_vec = self._load_glove_vec('{}/{}.txt'.format(self.glove_dir, self.save_file))
+			self.pretrained_vec = self._load_glove_vec('{}{}.txt'.format(self.glove_dir, self.save_file))
 			self.wv = self.pretrained_vec.wv
 
 			self._cal_kv()
